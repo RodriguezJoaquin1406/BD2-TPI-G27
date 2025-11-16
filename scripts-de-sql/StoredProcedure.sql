@@ -184,11 +184,9 @@ BEGIN
 
     -- --- FIN DE VALIDACIONES ---
 
-    -- Si pasa todas las validaciones, procedemos a ESCRIBIR en la BD.
-    -- Envolvemos todas las escrituras en una Transacción.
+    -- Si pasa todas las validaciones, procedemos a ESCRIBIR en BD.
 
     BEGIN TRY
-        -- 1. Inicia la "zona segura" de la transacción
         BEGIN TRANSACTION;
 
         -- Obtenemos el ID del estado 'Reservado'
@@ -206,7 +204,6 @@ BEGIN
             @FechaTurno, @HoraInicio, @HoraFinCalculada, @CostoBase
         );
         
-        -- (Si tuvieras que hacer un segundo INSERT o un UPDATE, iría aquí)
 
         -- 3. Si todo lo anterior funcionó sin errores, guardamos permanentemente.
         COMMIT TRANSACTION;
@@ -214,13 +211,9 @@ BEGIN
 
     END TRY
     BEGIN CATCH
-        -- 4. Si ALGO dentro del bloque TRY falló (el INSERT, el COMMIT, etc.)
-        -- SQL Server salta automáticamente aquí.
 
-        -- Comprobamos si la transacción quedó "abierta"
         IF @@TRANCOUNT > 0
         BEGIN
-            -- Deshacemos todo. El INSERT en Turno NUNCA se guardará.
             ROLLBACK TRANSACTION;
         END
         
