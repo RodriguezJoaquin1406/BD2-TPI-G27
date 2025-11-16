@@ -1,8 +1,6 @@
 USE BD2_TPI_G27_CLINICA;
 GO
 
-DROP PROCEDURE IF EXISTS sp_CrearSolicitudDeCambio;
-GO
 
 CREATE PROCEDURE sp_CrearSolicitudDeCambio
     @IdTurno INT,
@@ -104,12 +102,6 @@ GO
 
 -- 2do stored procedure
 
-USE BD2_TPI_G27_CLINICA;
-GO
-
-DROP PROCEDURE IF EXISTS sp_AgendarNuevoTurno;
-GO
-
 CREATE PROCEDURE sp_AgendarNuevoTurno
     @IdUsuarioLogueado INT,
     @IdPacienteAAtender INT,
@@ -121,95 +113,90 @@ AS
 BEGIN
     SET NOCOUNT ON;
 
+    -- --- DECLARACIÓN DE VARIABLES ---
+    DECLARE @EstadoReservado TINYINT;
+    DECLARE @IdTipoUsuarioLogueado TINYINT;
+    DECLARE @IdPacienteLogueado INT;
+    DECLARE @DuracionMinutos INT;
+    DECLARE @CostoBase DECIMAL(10, 2);
+    DECLARE @HoraFinCalculada TIME;
+
+    -- --- VALIDACIONES DE REGLA DE NEGOCIO ---
+
+    -- Validacion 1: Validar que el Paciente, Doctor y Procedimiento existan
+    IF NOT EXISTS (SELECT 1 FROM UsuarioPaciente WHERE IdPaciente = @IdPacienteAAtender)
+        BEGIN RETURN -1; END -- Error: Paciente no existe
+
+    IF NOT EXISTS (SELECT 1 FROM Doctor WHERE IdDoctor = @IdDoctor)
+        BEGIN RETURN -2; END -- Error: Doctor no existe
+    
+    IF NOT EXISTS (SELECT 1 FROM Procedimiento WHERE IdProcedimiento = @IdProcedimiento)
+        BEGIN RETURN -3; END -- Error: Procedimiento no existe
+
+    -- Validacion 2: Validar Permisos (Admin puede agendar para otros)
+    SELECT @IdTipoUsuarioLogueado = IdTipoUsuario FROM CredencialesUsuarios WHERE IdUsuario = @IdUsuarioLogueado;
+    SELECT @IdPacienteLogueado = IdPaciente FROM UsuarioPaciente WHERE IdUsuario = @IdUsuarioLogueado;
+
+    IF (@IdTipoUsuarioLogueado != 1 AND @IdPacienteAAtender != @IdPacienteLogueado)
+    BEGIN
+        RETURN -4; -- Error: No tiene permisos para agendar turnos para otro paciente.
+    END
+
+    -- Validacion 3: Validar que la fecha no sea en el pasado
+    IF @FechaTurno < CAST(GETDATE() AS DATE)
+    BEGIN
+        RETURN -5; -- Error: No se pueden agendar turnos en fechas pasadas.
+    END
+
+    -- Validacion 4: Obtener datos para cálculos (Costo y Duración)
+    SELECT 
+        @DuracionMinutos = DuracionMinutos,
+        @CostoBase = CostoBase
+    FROM Procedimiento 
+    WHERE IdProcedimiento = @IdProcedimiento;
+
+    -- Validacion 5: Validar Superposición de Horario
+    SET @HoraFinCalculada = DATEADD(MINUTE, @DuracionMinutos, @HoraInicio);
+
+    IF EXISTS (
+        SELECT 1
+        FROM Turno t
+        WHERE t.IdDoctor = @IdDoctor
+          AND t.FechaTurno = @FechaTurno
+          AND t.HoraInicio < @HoraFinCalculada
+          AND t.HoraFin > @HoraInicio
+    )
+    BEGIN
+        RETURN -6; -- Error: El horario con ese doctor ya está ocupado.
+    END
+    
+    -- VALIDACIÓN 6: Validar Especialidad del Doctor vs. Procedimiento
+    IF NOT EXISTS (
+        SELECT 1
+        FROM ProcedimientoxEspecialidad pe
+        INNER JOIN DoctorxEspecialidad de ON pe.IdEspecialidad = de.IdEspecialidad
+        WHERE pe.IdProcedimiento = @IdProcedimiento
+          AND de.IdDoctor = @IdDoctor
+    )
+    BEGIN
+        RETURN -7; -- Error: El doctor no tiene la especialidad requerida.
+    END
+
+    -- --- FIN DE VALIDACIONES ---
+
+    -- Si pasa todas las validaciones, procedemos a ESCRIBIR en la BD.
+    -- Envolvemos todas las escrituras en una Transacción.
+
     BEGIN TRY
-        -- --- DECLARACIÓN DE VARIABLES ---
-        DECLARE @EstadoReservado TINYINT;
-        DECLARE @IdTipoUsuarioLogueado TINYINT;
-        DECLARE @IdPacienteLogueado INT;
-        DECLARE @DuracionMinutos INT;
-        DECLARE @CostoBase DECIMAL(10, 2);
-        DECLARE @HoraFinCalculada TIME;
+        -- 1. Inicia la "zona segura" de la transacción
+        BEGIN TRANSACTION;
 
-        -- --- VALIDACIONES PRINCIPALES ---
-
-        -- Validacion 1: Validar que el Paciente, Doctor y Procedimiento existan
-        IF NOT EXISTS (SELECT 1 FROM UsuarioPaciente WHERE IdPaciente = @IdPacienteAAtender)
-            BEGIN RETURN -1; END -- Error: Paciente no existe
-
-        IF NOT EXISTS (SELECT 1 FROM Doctor WHERE IdDoctor = @IdDoctor)
-            BEGIN RETURN -2; END -- Error: Doctor no existe
-        
-        IF NOT EXISTS (SELECT 1 FROM Procedimiento WHERE IdProcedimiento = @IdProcedimiento)
-            BEGIN RETURN -3; END -- Error: Procedimiento no existe
-
-        -- Validacion 2: Validar Permisos (Admin puede agendar para otros)
-        SELECT @IdTipoUsuarioLogueado = IdTipoUsuario 
-        FROM CredencialesUsuarios 
-        WHERE IdUsuario = @IdUsuarioLogueado;
-
-        SELECT @IdPacienteLogueado = IdPaciente 
-        FROM UsuarioPaciente 
-        WHERE IdUsuario = @IdUsuarioLogueado;
-
-        IF (@IdTipoUsuarioLogueado != 1 AND @IdPacienteAAtender != @IdPacienteLogueado)
-        BEGIN
-            RETURN -4; -- Error: No tiene permisos para agendar turnos para otro paciente.
-        END
-
-        -- Validacion 3: Validar que la fecha no sea en el pasado
-        IF @FechaTurno < CAST(GETDATE() AS DATE)
-        BEGIN
-            RETURN -5; -- Error: No se pueden agendar turnos en fechas pasadas.
-        END
-
-        -- Validacion 4: Obtener datos para cálculos (Costo y Duración)
-        SELECT 
-            @DuracionMinutos = DuracionMinutos,
-            @CostoBase = CostoBase
-        FROM Procedimiento 
-        WHERE IdProcedimiento = @IdProcedimiento;
-
-        -- Validacion 5: Validar Superposición de Horario
-        SET @HoraFinCalculada = DATEADD(MINUTE, @DuracionMinutos, @HoraInicio);
-
-        IF EXISTS (
-            SELECT 1
-            FROM Turno t
-            WHERE t.IdDoctor = @IdDoctor
-              AND t.FechaTurno = @FechaTurno
-              AND t.HoraInicio < @HoraFinCalculada
-              AND t.HoraFin > @HoraInicio
-        )
-        BEGIN
-            RETURN -6; -- Error: El horario con ese doctor ya está ocupado.
-        END
-        
-        -- VALIDACIÓN 6: Validar Especialidad Doctor vs. Procedimiento
-        -- Esta consulta comprueba si existe al menos UNA especialidad en común
-        -- entre las que el doctor TIENE y las que el procedimiento REQUIERE.
-
-        IF NOT EXISTS (
-            SELECT 1
-            FROM ProcedimientoxEspecialidad pe
-            INNER JOIN DoctorxEspecialidad de ON pe.IdEspecialidad = de.IdEspecialidad
-            WHERE pe.IdProcedimiento = @IdProcedimiento
-              AND de.IdDoctor = @IdDoctor
-        )
-        BEGIN
-            -- Si la subconsulta no devuelve filas, no hay coincidencias.
-            RETURN -7; -- Error: El doctor seleccionado no tiene la especialidad requerida para este procedimiento.
-        END
-
-        -- --- FIN DE VALIDACIONES ---
-
-        -- Si pasa todas las validaciones, preparamos la inserción
-        
-        -- Obtener el ID del estado 'Reservado' (es el 1 en tu script)
+        -- Obtenemos el ID del estado 'Reservado'
         SELECT @EstadoReservado = IdEstado 
         FROM EstadosTurnos 
         WHERE Detalle = 'Reservado';
 
-        -- --- INSERCIÓN ---
+        -- 2. Ejecutamos la acción de INSERCIÓN
         INSERT INTO Turno (
             IdProcedimiento, IdDoctor, IdPaciente, IdEstadoTurno, 
             FechaTurno, HoraInicio, HoraFin, Monto
@@ -218,13 +205,26 @@ BEGIN
             @IdProcedimiento, @IdDoctor, @IdPacienteAAtender, @EstadoReservado,
             @FechaTurno, @HoraInicio, @HoraFinCalculada, @CostoBase
         );
+        
+        -- (Si tuvieras que hacer un segundo INSERT o un UPDATE, iría aquí)
 
+        -- 3. Si todo lo anterior funcionó sin errores, guardamos permanentemente.
+        COMMIT TRANSACTION;
         RETURN 1; -- Éxito
 
     END TRY
     BEGIN CATCH
+        -- 4. Si ALGO dentro del bloque TRY falló (el INSERT, el COMMIT, etc.)
+        -- SQL Server salta automáticamente aquí.
+
+        -- Comprobamos si la transacción quedó "abierta"
+        IF @@TRANCOUNT > 0
+        BEGIN
+            -- Deshacemos todo. El INSERT en Turno NUNCA se guardará.
+            ROLLBACK TRANSACTION;
+        END
         
-        RETURN -99;
+        RETURN -99; -- Devuelve un error genérico de "Algo salió mal"
     END CATCH
 END;
 GO
