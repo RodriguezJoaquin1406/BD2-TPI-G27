@@ -91,11 +91,23 @@ BEGIN
     END
 
     -- --- FIN DE VALIDACIONES ---
+    BEGIN TRY
+        BEGIN TRANSACTION;
 
-    INSERT INTO SolicitudesCambioTurno (IdTurno, IdPaciente, FechaTurnoNueva, HoraInicioNueva, Aprobado)
-    VALUES (@IdTurno, @IdPacienteOriginal, @FechaNueva, @HoraNueva, DEFAULT);
+        INSERT INTO SolicitudesCambioTurno (IdTurno, IdPaciente, FechaTurnoNueva, HoraInicioNueva, Aprobado)
+        VALUES (@IdTurno, @IdPacienteOriginal, @FechaNueva, @HoraNueva, DEFAULT);
 
-    RETURN 1; -- Éxito
+        COMMIT TRANSACTION;
+        RETURN 1; -- Éxito
+    END TRY
+
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0
+        BEGIN 
+            ROLLBACK TRANSACTION;
+        END 
+    END CATCH
+
 END;
 GO
 
@@ -205,7 +217,6 @@ BEGIN
         );
         
 
-        -- 3. Si todo lo anterior funcionó sin errores, guardamos permanentemente.
         COMMIT TRANSACTION;
         RETURN 1; -- Éxito
 
