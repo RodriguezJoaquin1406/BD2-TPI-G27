@@ -119,3 +119,40 @@ GO
 -- Ejmplo uso: Todos los doctores
 
 SELECT * FROM vwReporteFacturacionPorDoctor;
+
+
+---
+-- vista nro 4
+
+CREATE VIEW vwSolicitudesDeCambioPendientes AS
+SELECT
+    sct.IdSolicitud,
+    sct.IdTurno,
+    
+    -- Información del Paciente
+    cu_pac.Nombre + ' ' + cu_pac.Apellido AS NombrePaciente,
+    
+    -- Información del Turno Original
+    t.FechaTurno AS FechaOriginal,
+    t.HoraInicio AS HoraOriginal,
+    cu_doc.Nombre + ' ' + cu_doc.Apellido AS NombreDoctor,
+    
+    -- Información de la Nueva Solicitud
+    sct.FechaTurnoNueva AS FechaSolicitada,
+    sct.HoraInicioNueva AS HoraSolicitada,
+    sct.FechaSolicitudCambio AS FechaDeLaSolicitud
+FROM
+    SolicitudesCambioTurno sct
+INNER JOIN
+    Turno t ON sct.IdTurno = t.IdTurno
+INNER JOIN
+    UsuarioPaciente up ON t.IdPaciente = up.IdPaciente
+INNER JOIN
+    CredencialesUsuarios cu_pac ON up.IdUsuario = cu_pac.IdUsuario
+INNER JOIN
+    Doctor d ON t.IdDoctor = d.IdDoctor
+INNER JOIN
+    CredencialesUsuarios cu_doc ON d.IdUsuario = cu_doc.IdUsuario
+WHERE
+    sct.Aprobado = 0 -- Filtra solo las que están PENDIENTES
+GO
