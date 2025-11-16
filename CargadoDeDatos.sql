@@ -72,7 +72,7 @@ GO
 -- Relación Doctor-Especialidad
 INSERT INTO DoctorxEspecialidad (IdDoctor, IdEspecialidad) VALUES
 (1, 1), -- Carlos capacitado en Cardiologia
-(2, 3); -- Luisa capacitada en Dermatologia
+(2, 3), -- Luisa capacitada en Dermatologia
 (3, 2); -- Fernando está especializado en Neurología.
 
 
